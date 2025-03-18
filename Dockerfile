@@ -1,4 +1,4 @@
-FROM golang:1.22@sha256:d017a3d231ef5ed7596f1f1d330635bad3f9ecc1447aa97c29451ae2ef02d4dd AS builder
+FROM golang:1.24@sha256:ceb568d0de81fbef40ce4fee77eab524a0a0a8536065c51866ad8c59b7a912cf AS builder
 
 COPY . /build
 
