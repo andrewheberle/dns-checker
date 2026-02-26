@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"syscall"
 	"time"
 
+	"github.com/oklog/run"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -21,13 +25,9 @@ func main() {
 	// viper setup
 	viper.SetEnvPrefix("dns")
 	viper.AutomaticEnv()
-	viper.BindPFlags(pflag.CommandLine)
-
-	// http server with some timeouts
-	srv := &http.Server{
-		Addr:         viper.GetString("listen"),
-		ReadTimeout:  time.Second * 5,
-		WriteTimeout: time.Second * 5,
+	if err := viper.BindPFlags(pflag.CommandLine); err != nil {
+		slog.Error("Failed to bind flags", "error", err)
+		os.Exit(1)
 	}
 
 	// set up custom resolver to use specified DNS server
@@ -42,17 +42,59 @@ func main() {
 		},
 	}
 
+	mux := http.NewServeMux()
+
 	// handler for health check
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		_, err := resolver.LookupHost(context.Background(), viper.GetString("lookup"))
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+		defer cancel()
+
+		_, err := resolver.LookupHost(ctx, viper.GetString("lookup"))
 		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			slog.Error("DNS check failed", "server", viper.GetString("server"), "lookup", viper.GetString("lookup"), "error", err)
+			http.Error(w, "DNS check failed", http.StatusInternalServerError)
 			return
 		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
 	})
 
-	// start http service
-	if err := srv.ListenAndServe(); err != nil {
-		slog.Error("Error with HTTP service", "error", err)
+	// http server with some timeouts
+	srv := &http.Server{
+		Addr:         viper.GetString("listen"),
+		Handler:      mux,
+		ReadTimeout:  time.Second * 5,
+		WriteTimeout: time.Second * 5,
+	}
+
+	g := run.Group{}
+
+	// add http server
+	{
+		g.Add(func() error {
+			return srv.ListenAndServe()
+		}, func(err error) {
+			if err != nil {
+				slog.Error("Error with HTTP service", "error", err)
+			}
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+				srv.Shutdown(ctx)
+				cancel()
+			}()
+		})
+	}
+
+	// add signal handler for SIGINT and SIGTERM
+	{
+		g.Add(run.SignalHandler(context.Background(), syscall.SIGINT, syscall.SIGTERM))
+	}
+
+	// start run group
+	if err := g.Run(); err != nil {
+		if !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, run.ErrSignal) {
+			slog.Error("Error from service", "error", err)
+		}
 	}
 }
