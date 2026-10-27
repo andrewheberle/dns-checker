@@ -1,4 +1,4 @@
-module githib.com/andrewheberle/dns-checker
+module github.com/andrewheberle/dns-checker
 
 go 1.26
 
