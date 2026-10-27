@@ -39,7 +39,7 @@ func main() {
 	}
 
 	// set up config
-	c, err := configger.LoadConfig(f, configger.WithoutConfigurationFile())
+	c, err := configger.LoadConfig(f, configger.WithoutConfigurationFile(), configger.WithEnvPrefix("DNS"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error setting up config: %s\n", err)
 		os.Exit(1)
