@@ -12,9 +12,11 @@ This can be used as a sidecar to provide health checks for a DNS pod in Kubernet
 
 ## Command-Line Options
 
-* `--listen`: Listen address (string)
-* `--server`: DNS server to query, as `host:port` (port defaults to 53 if omitted) (string)
-* `--lookup`: Hostname to lookup, always treated as fully qualified (string)
+| Flag | Description | Type | Default |
+|-|-|-|-|
+| `--listen` | Listen address | string | `localhost:8080` (`:8080` for container build) |
+| `--server` | DNS server to query, as `host:port` (port defaults to 53 if omitted) | string | `localhost:5353` |
+| `--lookup` | Hostname to lookup, always treated as fully qualified | string | `google.com` |
 
 All command line options may be specified as environment variables in the form of `DNS_<option>`
 
