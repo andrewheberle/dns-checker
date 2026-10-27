@@ -217,3 +217,15 @@ func TestRunListenInUse(t *testing.T) {
 		t.Error("run() error = nil, want listen error")
 	}
 }
+
+func TestRunInvalidServer(t *testing.T) {
+	addr := freeAddr(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := run(ctx, []string{"--listen", addr, "--server", "10.0.0.1:abc"}, io.Discard, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "invalid target server address") {
+		t.Errorf("run() error = %v, want invalid target server address error", err)
+	}
+}
