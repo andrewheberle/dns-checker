@@ -3,29 +3,76 @@ package dnstest
 
 import (
 	"net"
+	"net/netip"
 	"testing"
 
 	"golang.org/x/net/dns/dnsmessage"
 )
 
-// Handler decides how the server responds to a query. Returning false drops
-// the query without a reply.
-type Handler func(q dnsmessage.Question) (rcode dnsmessage.RCode, reply bool)
+// Reply describes one response the server sends to a query.
+type Reply struct {
+	// WrongID sends the reply with an ID that does not match the query.
+	WrongID   bool
+	RCode     dnsmessage.RCode
+	Truncated bool
+	Answers   []dnsmessage.Resource
+}
+
+// Handler decides how the server responds to a query. Each Reply is sent in
+// order, and returning none drops the query.
+type Handler func(q dnsmessage.Question) []Reply
 
 // Answer replies successfully, answering A questions with 192.0.2.1.
-func Answer(dnsmessage.Question) (dnsmessage.RCode, bool) {
-	return dnsmessage.RCodeSuccess, true
+func Answer(q dnsmessage.Question) []Reply {
+	r := Reply{RCode: dnsmessage.RCodeSuccess}
+	if q.Type == dnsmessage.TypeA {
+		r.Answers = []dnsmessage.Resource{A(q.Name.String(), "192.0.2.1")}
+	}
+
+	return []Reply{r}
 }
 
 // Drop never replies.
-func Drop(dnsmessage.Question) (dnsmessage.RCode, bool) {
-	return 0, false
+func Drop(dnsmessage.Question) []Reply {
+	return nil
 }
 
 // RCode returns a Handler that replies with rcode and no answers.
 func RCode(rcode dnsmessage.RCode) Handler {
-	return func(dnsmessage.Question) (dnsmessage.RCode, bool) {
-		return rcode, true
+	return func(dnsmessage.Question) []Reply {
+		return []Reply{{RCode: rcode}}
+	}
+}
+
+// A returns an A record for name.
+func A(name, addr string) dnsmessage.Resource {
+	return dnsmessage.Resource{
+		Header: header(name),
+		Body:   &dnsmessage.AResource{A: netip.MustParseAddr(addr).As4()},
+	}
+}
+
+// AAAA returns an AAAA record for name.
+func AAAA(name, addr string) dnsmessage.Resource {
+	return dnsmessage.Resource{
+		Header: header(name),
+		Body:   &dnsmessage.AAAAResource{AAAA: netip.MustParseAddr(addr).As16()},
+	}
+}
+
+// CNAME returns a CNAME record pointing name at target.
+func CNAME(name, target string) dnsmessage.Resource {
+	return dnsmessage.Resource{
+		Header: header(name),
+		Body:   &dnsmessage.CNAMEResource{CNAME: dnsmessage.MustNewName(target)},
+	}
+}
+
+func header(name string) dnsmessage.ResourceHeader {
+	return dnsmessage.ResourceHeader{
+		Name:  dnsmessage.MustNewName(name),
+		Class: dnsmessage.ClassINET,
+		TTL:   60,
 	}
 }
 
@@ -48,72 +95,53 @@ func Start(t testing.TB, h Handler) string {
 				return
 			}
 
-			resp, ok := respond(buf[:n], h)
-			if !ok {
-				continue
+			for _, resp := range respond(buf[:n], h) {
+				_, _ = conn.WriteTo(resp, addr)
 			}
-
-			_, _ = conn.WriteTo(resp, addr)
 		}
 	}()
 
 	return conn.LocalAddr().String()
 }
 
-// respond builds a reply to the query in msg, answering A questions with
-// 192.0.2.1 when the handler returns RCodeSuccess.
-func respond(msg []byte, h Handler) ([]byte, bool) {
+// respond builds the replies to the query in msg.
+func respond(msg []byte, h Handler) [][]byte {
 	var p dnsmessage.Parser
 	hdr, err := p.Start(msg)
 	if err != nil {
-		return nil, false
+		return nil
 	}
 
 	q, err := p.Question()
 	if err != nil {
-		return nil, false
+		return nil
 	}
 
-	rcode, reply := h(q)
-	if !reply {
-		return nil, false
-	}
-
-	b := dnsmessage.NewBuilder(nil, dnsmessage.Header{
-		ID:                 hdr.ID,
-		Response:           true,
-		Authoritative:      true,
-		RecursionDesired:   hdr.RecursionDesired,
-		RecursionAvailable: true,
-		RCode:              rcode,
-	})
-	b.EnableCompression()
-
-	if err := b.StartQuestions(); err != nil {
-		return nil, false
-	}
-	if err := b.Question(q); err != nil {
-		return nil, false
-	}
-	if err := b.StartAnswers(); err != nil {
-		return nil, false
-	}
-
-	if rcode == dnsmessage.RCodeSuccess && q.Type == dnsmessage.TypeA {
-		err := b.AResource(dnsmessage.ResourceHeader{
-			Name:  q.Name,
-			Class: dnsmessage.ClassINET,
-			TTL:   60,
-		}, dnsmessage.AResource{A: [4]byte{192, 0, 2, 1}})
-		if err != nil {
-			return nil, false
+	var resps [][]byte
+	for _, r := range h(q) {
+		m := dnsmessage.Message{
+			Header: dnsmessage.Header{
+				ID:                 hdr.ID,
+				Response:           true,
+				Authoritative:      true,
+				Truncated:          r.Truncated,
+				RecursionDesired:   hdr.RecursionDesired,
+				RecursionAvailable: true,
+				RCode:              r.RCode,
+			},
+			Questions: []dnsmessage.Question{q},
+			Answers:   r.Answers,
 		}
+		if r.WrongID {
+			m.ID = ^hdr.ID
+		}
+
+		resp, err := m.Pack()
+		if err != nil {
+			continue
+		}
+		resps = append(resps, resp)
 	}
 
-	resp, err := b.Finish()
-	if err != nil {
-		return nil, false
-	}
-
-	return resp, true
+	return resps
 }
