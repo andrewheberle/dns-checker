@@ -1,5 +1,6 @@
 # dns-checker
 
+[![codecov](https://codecov.io/gh/andrewheberle/dns-checker/graph/badge.svg?token=VZM09OWOXA)](https://codecov.io/gh/andrewheberle/dns-checker)
 [![tag](https://img.shields.io/github/v/tag/andrewheberle/dns-checker)](https://github.com/andrewheberle/dns-checker/-/tags)
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue)](https://github.com/andrewheberle/dns-checker/-/blob/main/LICENSE)
 
