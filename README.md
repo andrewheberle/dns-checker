@@ -1,6 +1,7 @@
 # dns-checker
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/andrewheberle/dns-checker?logo=go&style=flat-square)](https://goreportcard.com/report/github.com/andrewheberle/dns-checker)
+[![tag](https://img.shields.io/github/v/tag/andrewheberle/dns-checker)](https://github.com/andrewheberle/dns-checker/-/tags)
+[![LICENSE](https://img.shields.io/badge/license-MIT-blue)](https://github.com/andrewheberle/dns-checker/-/blob/main/LICENSE)
 
 This can be used as a sidecar to provide health checks for a DNS pod in Kubernetes.
 
