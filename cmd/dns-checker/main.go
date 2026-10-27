@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"syscall"
 	"time"
 
 	"github.com/andrewheberle/configger"
+	"github.com/andrewheberle/dns-checker/internal/probe"
 	"github.com/oklog/run"
 	"github.com/spf13/pflag"
 )
@@ -45,27 +45,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// set up custom resolver to use specified DNS server
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{
-				Timeout: time.Second * 4,
-			}
-
-			return d.DialContext(ctx, network, c.String("server"))
-		},
-	}
+	// set up probe of specified DNS server
+	p := probe.New(c.String("server"), c.String("lookup"))
 
 	mux := http.NewServeMux()
 
 	// handler for health check
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
-		defer cancel()
-
-		_, err := resolver.LookupHost(ctx, c.String("lookup"))
-		if err != nil {
+		if err := p.Check(r.Context()); err != nil {
 			slog.Error("DNS check failed", "server", c.String("server"), "lookup", c.String("lookup"), "error", err)
 			http.Error(w, "DNS check failed", http.StatusInternalServerError)
 			return
