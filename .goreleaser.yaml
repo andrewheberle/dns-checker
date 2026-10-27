@@ -1,0 +1,106 @@
+project_name: dns-checker
+
+version: 2
+
+builds:
+  - id: dns-checker
+    binary: dns-checker
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    main: ./cmd/dns-checker
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    tags:
+      - netgo
+    ldflags:
+      - -s -w -X main.Version={{ .Version }} -X main.Date={{ .CommitDate }}
+
+gomod:
+  proxy: true
+
+changelog:
+  disable: true
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  mode: keep-existing
+  draft: false
+  make_latest: true
+  replace_existing_artifacts: true
+  prerelease: auto
+  use_existing_draft: true
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
+sboms:
+  - artifacts: binary
+    disable: false
+
+archives:
+  - ids:
+      - onms-grpc-receiver
+    allow_different_binary_count: true
+    formats: [tar.gz]
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+dockers_v2:
+  - images:
+      - "ghcr.io/andrewheberle/dns-checker"
+    ids:
+      - dns-checker
+    tags:
+      - "v{{ .Version }}"
+      - "{{ if not .IsSnapshot }}latest{{ end }}"
+    sbom: true
+    disable: false
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      "org.opencontainers.image.description": "A container designed to be used as a can be used as a sidecar to provide health checks for a DNS pod in Kubernetes."
+      "org.opencontainers.image.created": "{{ .Date }}"
+      "org.opencontainers.image.name": "{{ .ProjectName }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.source": "{{ .GitURL }}"
+    annotations:
+      "org.opencontainers.image.description": "A container designed to be used as a can be used as a sidecar to provide health checks for a DNS pod in Kubernetes."
+
+docker_digest:
+  name_template: "digests.txt"
+
+docker_signs:
+  - cmd: cosign
+    output: true
+    args:
+      - "sign"
+      - "${artifact}@${digest}"
+      - "--yes"
