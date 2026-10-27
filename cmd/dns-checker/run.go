@@ -50,7 +50,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	// set up probe of specified DNS server
-	p := probe.New(c.String("server"), c.String("lookup"))
+	p, err := probe.New(c.String("server"), c.String("lookup"))
+	if err != nil {
+		return fmt.Errorf("error setting up probe: %w", err)
+	}
 
 	mux := http.NewServeMux()
 

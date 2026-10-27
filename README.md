@@ -9,7 +9,7 @@ This can be used as a sidecar to provide health checks for a DNS pod in Kubernet
 ## Command-Line Options
 
 * `--listen`: Listen address (string)
-* `--server`: DNS server to query (string)
+* `--server`: DNS server to query, as `host:port` (port defaults to 53 if omitted) (string)
 * `--lookup`: Hostname to lookup (string)
 
 All command line options may be specified as environment variables in the form of `DNS_<option>`
