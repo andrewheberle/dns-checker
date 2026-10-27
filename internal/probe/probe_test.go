@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -64,47 +65,164 @@ func TestNew(t *testing.T) {
 	}
 }
 
+// answers returns a Handler that replies to every query with records built
+// for the question.
+func answers(records func(q dnsmessage.Question) []dnsmessage.Resource) dnstest.Handler {
+	return func(q dnsmessage.Question) []dnstest.Reply {
+		return []dnstest.Reply{{Answers: records(q)}}
+	}
+}
+
 func TestCheck(t *testing.T) {
 	tests := []struct {
 		name    string
+		lookup  string
 		handler dnstest.Handler
-		wantErr bool
+		wantErr string
 	}{
 		{
 			name:    "answer",
 			handler: dnstest.Answer,
 		},
 		{
+			name: "aaaa only",
+			handler: answers(func(q dnsmessage.Question) []dnsmessage.Resource {
+				if q.Type == dnsmessage.TypeAAAA {
+					return []dnsmessage.Resource{dnstest.AAAA(q.Name.String(), "2001:db8::1")}
+				}
+				return nil
+			}),
+		},
+		{
+			name: "no records",
+			handler: answers(func(dnsmessage.Question) []dnsmessage.Resource {
+				return nil
+			}),
+			wantErr: "no A, AAAA or CNAME records",
+		},
+		{
+			name: "cname and a",
+			handler: answers(func(q dnsmessage.Question) []dnsmessage.Resource {
+				return []dnsmessage.Resource{
+					dnstest.CNAME(q.Name.String(), "target.test."),
+					dnstest.A("target.test.", "192.0.2.1"),
+				}
+			}),
+		},
+		{
+			name: "cname only",
+			handler: answers(func(q dnsmessage.Question) []dnsmessage.Resource {
+				return []dnsmessage.Resource{dnstest.CNAME(q.Name.String(), "target.test.")}
+			}),
+		},
+		{
+			name: "unrelated records only",
+			handler: answers(func(dnsmessage.Question) []dnsmessage.Resource {
+				return []dnsmessage.Resource{dnstest.A("other.test.", "192.0.2.1")}
+			}),
+			wantErr: "no A, AAAA or CNAME records",
+		},
+		{
+			name: "answer name in different case",
+			handler: answers(func(q dnsmessage.Question) []dnsmessage.Resource {
+				return []dnsmessage.Resource{dnstest.A(strings.ToUpper(q.Name.String()), "192.0.2.1")}
+			}),
+		},
+		{
+			name:    "lookup without trailing dot",
+			lookup:  "probe.test",
+			handler: dnstest.Answer,
+		},
+		{
+			name:    "hosts file name is still queried",
+			lookup:  "localhost",
+			handler: dnstest.RCode(dnsmessage.RCodeServerFailure),
+			wantErr: "SERVFAIL",
+		},
+		{
+			name: "wrong id ignored",
+			handler: func(q dnsmessage.Question) []dnstest.Reply {
+				return []dnstest.Reply{
+					{WrongID: true, RCode: dnsmessage.RCodeNameError},
+					{Answers: []dnsmessage.Resource{dnstest.A(q.Name.String(), "192.0.2.1")}},
+				}
+			},
+		},
+		{
+			name: "truncated",
+			handler: func(dnsmessage.Question) []dnstest.Reply {
+				return []dnstest.Reply{{Truncated: true}}
+			},
+		},
+		{
 			name:    "servfail",
 			handler: dnstest.RCode(dnsmessage.RCodeServerFailure),
-			wantErr: true,
+			wantErr: "SERVFAIL",
 		},
 		{
 			name:    "nxdomain",
 			handler: dnstest.RCode(dnsmessage.RCodeNameError),
-			wantErr: true,
+			wantErr: "NXDOMAIN",
+		},
+		{
+			name:    "refused",
+			handler: dnstest.RCode(dnsmessage.RCodeRefused),
+			wantErr: "REFUSED",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			lookup := tt.lookup
+			if lookup == "" {
+				lookup = testLookup
+			}
+
 			server := dnstest.Start(t, tt.handler)
-			p, err := New(server, testLookup)
+			p, err := New(server, lookup, WithTimeout(500*time.Millisecond))
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
 
 			err = p.Check(context.Background())
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("Check() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Check() error = %v, want nil", err)
+				}
+				return
 			}
 
-			if err != nil {
-				if !strings.Contains(err.Error(), server) || !strings.Contains(err.Error(), testLookup) {
-					t.Errorf("Check() error = %q, want it to name %s and %s", err, testLookup, server)
+			if err == nil {
+				t.Fatalf("Check() error = nil, want %q", tt.wantErr)
+			}
+
+			for _, want := range []string{tt.wantErr, server, fqdn(lookup)} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Check() error = %q, want it to contain %q", err, want)
 				}
 			}
 		})
+	}
+}
+
+func TestCheckResend(t *testing.T) {
+	var queries atomic.Int32
+	server := dnstest.Start(t, func(q dnsmessage.Question) []dnstest.Reply {
+		// drop the first query, as if the packet was lost
+		if queries.Add(1) == 1 {
+			return nil
+		}
+
+		return dnstest.Answer(q)
+	})
+
+	p, err := New(server, testLookup)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := p.Check(context.Background()); err != nil {
+		t.Errorf("Check() error = %v, want nil", err)
 	}
 }
 
