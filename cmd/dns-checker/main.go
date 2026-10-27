@@ -95,7 +95,9 @@ func main() {
 			}
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-				srv.Shutdown(ctx)
+				if err := srv.Shutdown(ctx); err != nil {
+					slog.Error("error during shutdown", "error", err)
+				}
 				cancel()
 			}()
 		})
