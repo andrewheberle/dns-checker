@@ -1,18 +1,7 @@
-FROM golang:1.25@sha256:931c889bca758a82fcbfcb1b6ed6ca1de30783e9e52e6093ad50060735cb99be AS builder
-
-COPY . /build
-
-RUN cd /build && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -tags netgo -ldflags '-w' ./cmd/dns-checker
-
-FROM gcr.io/distroless/base-debian12:nonroot@sha256:8b9f2e503e55aff85b79d6b22c7a63a65170e8698ae80de680e3f5ea600977bf
-
-LABEL org.opencontainers.image.description="DNS checker sidecar container"
-
-COPY --from=builder /build/dns-checker /app/dns-checker
-
+FROM cgr.dev/chainguard/static:latest@sha256:c12f0107f8afb0bbc1b0eff96ff8675e85a10c6083d039b777c51fef5c27420f
+ARG TARGETPLATFORM
 ENV DNS_LISTEN=":8080"
-
 EXPOSE 8080
-
-ENTRYPOINT [ "/app/dns-checker" ]
+ENTRYPOINT [ "/usr/bin/dns-checker" ]
+COPY $TARGETPLATFORM/dns-checker /usr/bin/
+USER 65532

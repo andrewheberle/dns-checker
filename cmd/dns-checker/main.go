@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -10,23 +11,37 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/andrewheberle/configger"
 	"github.com/oklog/run"
 	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 )
+
+var Version = "dev"
 
 func main() {
 	// command line flags
-	pflag.String("listen", "localhost:8080", "Service listen address")
-	pflag.String("server", "localhost:5353", "DNS service to probe")
-	pflag.String("lookup", "google.com", "Hostname to lookup")
-	pflag.Parse()
+	f := pflag.NewFlagSet("dns-checker", pflag.ContinueOnError)
+	f.String("listen", "localhost:8080", "Service listen address")
+	f.String("server", "localhost:5353", "DNS service to probe")
+	f.String("lookup", "google.com", "Hostname to lookup")
+	f.Bool("version", false, "Display version and exit")
 
-	// viper setup
-	viper.SetEnvPrefix("dns")
-	viper.AutomaticEnv()
-	if err := viper.BindPFlags(pflag.CommandLine); err != nil {
-		slog.Error("Failed to bind flags", "error", err)
+	// parse command line
+	if err := f.Parse(os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "error parsing command line flags: %s\n", err)
+		os.Exit(1)
+	}
+
+	// handle if version was requested
+	if version, err := f.GetBool("version"); err == nil && version {
+		fmt.Printf("dns-checker %s\n", Version)
+		os.Exit(0)
+	}
+
+	// set up config
+	c, err := configger.LoadConfig(f, configger.WithoutConfigurationFile())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error setting up config: %s\n", err)
 		os.Exit(1)
 	}
 
@@ -38,7 +53,7 @@ func main() {
 				Timeout: time.Second * 4,
 			}
 
-			return d.DialContext(ctx, network, viper.GetString("server"))
+			return d.DialContext(ctx, network, c.String("server"))
 		},
 	}
 
@@ -49,9 +64,9 @@ func main() {
 		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 		defer cancel()
 
-		_, err := resolver.LookupHost(ctx, viper.GetString("lookup"))
+		_, err := resolver.LookupHost(ctx, c.String("lookup"))
 		if err != nil {
-			slog.Error("DNS check failed", "server", viper.GetString("server"), "lookup", viper.GetString("lookup"), "error", err)
+			slog.Error("DNS check failed", "server", c.String("server"), "lookup", c.String("lookup"), "error", err)
 			http.Error(w, "DNS check failed", http.StatusInternalServerError)
 			return
 		}
@@ -62,7 +77,7 @@ func main() {
 
 	// http server with some timeouts
 	srv := &http.Server{
-		Addr:         viper.GetString("listen"),
+		Addr:         c.String("listen"),
 		Handler:      mux,
 		ReadTimeout:  time.Second * 5,
 		WriteTimeout: time.Second * 5,
