@@ -71,7 +71,7 @@ spec:
         periodSeconds: 10
         timeoutSeconds: 5
     - name: dns-checker
-      image: ghcr.io/andrewheberle/dns-checker:v1.1.0 # x-release-please-version
+      image: ghcr.io/andrewheberle/dns-checker:v1.2.1 # x-release-please-version
       args:
         - --server=127.0.0.1:53
         - --lookup=healthcheck.internal
