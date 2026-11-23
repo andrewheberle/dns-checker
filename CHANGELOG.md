@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.1](https://github.com/andrewheberle/dns-checker/compare/v1.2.0...v1.2.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **deps:** update cgr.dev/chainguard/static:latest docker digest to 8658e9e ([#60](https://github.com/andrewheberle/dns-checker/issues/60)) ([03cb275](https://github.com/andrewheberle/dns-checker/commit/03cb275b00556947ccdba81943637cd64594106f))
+* **deps:** update cgr.dev/chainguard/static:latest docker digest to fc42af3 ([#51](https://github.com/andrewheberle/dns-checker/issues/51)) ([a73411f](https://github.com/andrewheberle/dns-checker/commit/a73411fc28a7627e86491538e70aadca27019813))
+* **deps:** update module golang.org/x/net to v0.62.0 ([#49](https://github.com/andrewheberle/dns-checker/issues/49)) ([df235a4](https://github.com/andrewheberle/dns-checker/commit/df235a40cb52137b005ecd3369bdb94c9d58a026))
+
 ## [1.2.0](https://github.com/andrewheberle/dns-checker/compare/v1.1.0...v1.2.0) (2026-10-27)
 
 
